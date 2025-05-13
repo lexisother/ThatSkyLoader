@@ -223,7 +223,7 @@ void InitializeContext(HWND hwnd) {
     colors[ImGuiCol_SliderGrabActive] = ImVec4(0.63f, 0.63f, 0.63f, 1.00f);
 
     // Load font configuration
-    loadFontConfig("sml_config.json", fontconfig);
+    loadFontConfig("tsml_config.json", fontconfig);
     LoadFontsFromFolder(fontconfig);
 
     // Configure ImGui IO
@@ -254,7 +254,7 @@ void SMLMainMenu() {
     ImGuiIO& io = ImGui::GetIO();
 
     ig::SetNextWindowSize({ 200, 0 }, ImGuiCond_Once);
-    if (ig::Begin("SML Main", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+    if (ig::Begin("That Sky Mod Loader", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
         ImGui::SeparatorText(("Mods (" + std::to_string(ModLoader::GetModCount()) + ")").c_str());
         ig::BeginTable("##mods", 2, ImGuiTableFlags_Resizable | ImGuiTableFlags_NoBordersInBody);
         ig::TableSetupColumn("Mod", ImGuiTableColumnFlags_WidthStretch);
@@ -279,7 +279,7 @@ void SMLMainMenu() {
 
         ShowFontSelector();
         ig::SameLine();
-        HelpMarker(std::format("Total: {}\nPath: {}\nStart Range: {}\nEnd Range: {}\nSize: {}W / {}H\nConfig: sml_config.json", 
+        HelpMarker(std::format("Total: {}\nPath: {}\nStart Range: {}\nEnd Range: {}\nSize: {}W / {}H\nConfig: tsml_config.json", 
             io.Fonts->Fonts.Size, fontconfig.fontPath.c_str(), fontconfig.unicodeRangeStart, 
             fontconfig.unicodeRangeEnd, io.Fonts->TexWidth, io.Fonts->TexHeight).c_str());
 
@@ -294,7 +294,7 @@ void SMLMainMenu() {
         ig::Separator();
         ig::Spacing();
 
-        ig::Text("v0.1.4 | FPS: %.f | %.2f ms", io.Framerate, 1000.0f / io.Framerate);
+        ig::Text("v0.2.0 | FPS: %.f | %.2f ms", io.Framerate, 1000.0f / io.Framerate);
     }
     ig::End();
 }

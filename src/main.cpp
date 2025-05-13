@@ -235,7 +235,7 @@ LSTATUS WINAPI HookRegEnumValueA(HKEY hKey, DWORD dwIndex, LPSTR lpValueName, LP
     LSTATUS result = g_originalRegEnumValueA(hKey, dwIndex, lpValueName, lpcchValueName, lpReserved, lpType, lpData, lpcbData);
 
     if (wcscmp(path.c_str(), L"\\REGISTRY\\MACHINE\\SOFTWARE\\Khronos\\Vulkan\\ImplicitLayers") == 0 && dwIndex == 0) {
-        std::string configPath = g_basePath + "\\sml_config.json";
+        std::string configPath = g_basePath + "\\tsml_config.json";
 
         strncpy_s(lpValueName, *lpcchValueName, configPath.c_str(), configPath.size());
         lpValueName[configPath.size()] = '\0';
@@ -357,7 +357,7 @@ bool SetupRegistryHook() {
  * @brief Ensures the SML config file exists, creating it with default values if it doesn't
  */
 void EnsureConfigFileExists() {
-    std::string configPath = g_basePath + "\\sml_config.json";
+    std::string configPath = g_basePath + "\\tsml_config.json";
     std::ifstream configFile(configPath);
     
     if (!configFile.is_open()) {
