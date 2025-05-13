@@ -19,6 +19,7 @@
 #include "include/layer.h"
 #include "include/menu.hpp"
 #include "include/mod_loader.h"
+#include "include/json.hpp"
 
 namespace {
     // Global variables
@@ -352,6 +353,52 @@ bool SetupRegistryHook() {
     return true;
 }
 
+/**
+ * @brief Ensures the SML config file exists, creating it with default values if it doesn't
+ */
+void EnsureConfigFileExists() {
+    std::string configPath = g_basePath + "\\sml_config.json";
+    std::ifstream configFile(configPath);
+    
+    if (!configFile.is_open()) {
+        Print("Config file not found, creating default at: %s\n", configPath.c_str());
+        
+        // Write the default config directly to file to preserve exact order
+        std::ofstream outFile(configPath);
+        if (outFile.is_open()) {
+            // Write the JSON with the exact formatting and order we want
+            outFile << R"({
+    "file_format_version" : "1.0.0",
+    "layer" : {
+      "name": "VkLayer_TSML",
+      "type": "GLOBAL",
+      "api_version": "1.3.221",
+      "library_path": ".\\powrprof.dll",
+      "implementation_version": "1",
+      "description": "A mod loader for the game Sky: Chilren of the Light",
+      "functions": {
+        "vkGetInstanceProcAddr": "ModLoader_GetInstanceProcAddr",
+        "vkGetDeviceProcAddr": "ModLoader_GetDeviceProcAddr"
+      },
+      "disable_environment": {
+        "DISABLE_VKROOTS_TEST_1": "1"
+      }
+    },
+    "fontPath": "fonts",
+    "fontSize": 18.0,
+    "unicodeRangeStart": "0x0001",
+    "unicodeRangeEnd": "0xFFFF"
+})";
+            outFile.close();
+            Print("Created default config file successfully\n");
+        } else {
+            Print("Failed to create default config file!\n");
+        }
+    } else {
+        configFile.close();
+    }
+}
+
 void Initialize() {
     // Prevent multiple initializations
     if (g_isInitialized.exchange(true)) {
@@ -375,6 +422,9 @@ void Initialize() {
     fullPath.resize(strlen(fullPath.c_str())); // Adjust size to actual content
     
     g_basePath = fullPath.substr(0, fullPath.find_last_of("\\/"));
+
+    // Ensure config file exists
+    EnsureConfigFileExists();
 
     // Load PowerProf functions
     if (!LoadPowerProfFunctions()) {
