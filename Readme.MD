@@ -28,8 +28,8 @@ ThatSkyModLoader is a powerful mod loader for Sky: Children of the Light on PC. 
 ### 1. Clone the Repository
 
 ```sh
-git clone https://github.com/lukas0x1/sml-pc.git
-cd sml-pc
+git clone https://github.com/XeTrinityz/ThatSkyModLoader.git
+cd ThatSkyModLoader
 ```
 
 ### 2. Extract Dependencies
