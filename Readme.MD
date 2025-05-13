@@ -1,14 +1,12 @@
-# ThatSkyLoader - Mod Loader for Sky: Children of the Light
-
 <p align="center">
   <img src="https://img2.storyblok.com/fit-in/0x300/filters:format(webp)/f/108104/368x415/436d2e239c/sky-logo-white.png" alt="Sky: Children of the Light" width="300"/>
 </p>
 
-> **Note:** This is a fork by [XeTrinityz](https://github.com/XeTrinityz) of the original project by [Lukas](https://github.com/lukas0x1). This fork includes significant optimizations and enhancements to the original codebase.
+> **Note:** This repo is by [XeTrinityz](https://github.com/XeTrinityz) created from the original project by [Lukas](https://github.com/lukas0x1) which is no longer maintained. This repo includes significant optimizations and enhancements to the original codebase.
 
 ## Overview
 
-ThatSkyLoader is a powerful mod loader for Sky: Children of the Light on PC. It integrates with the game through a Vulkan layer, allowing for dynamic loading and management of mods without modifying the original game files.
+ThatSkyModLoader is a powerful mod loader for Sky: Children of the Light on PC. It integrates with the game through a Vulkan layer, allowing for dynamic loading and management of mods without modifying the original game files.
 
 ## Features
 
@@ -71,7 +69,7 @@ After building, the mod loader will be available as `powrprof.dll` in the `lib/r
 
 ## Creating Mods
 
-Mods for ThatSkyLoader are DLL files that follow a specific API. A basic mod structure includes:
+Mods for ThatSkyModLoader are DLL files that follow a specific API. A basic mod structure includes:
 
 ```cpp
 // Example mod structure
