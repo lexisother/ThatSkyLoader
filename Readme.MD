@@ -1,7 +1,7 @@
 # ThatSkyLoader - Mod Loader for Sky: Children of the Light
 
 <p align="center">
-  <img src="https://thatgamecompany.com/wp-content/uploads/2019/05/Sky_Logo_White.png" alt="Sky: Children of the Light" width="300"/>
+  <img src="https://img2.storyblok.com/fit-in/0x300/filters:format(webp)/f/108104/368x415/436d2e239c/sky-logo-white.png" alt="Sky: Children of the Light" width="300"/>
 </p>
 
 > **Note:** This is a fork by [XeTrinityz](https://github.com/XeTrinityz) of the original project by [Lukas](https://github.com/lukas0x1). This fork includes significant optimizations and enhancements to the original codebase.
@@ -23,7 +23,6 @@ ThatSkyLoader is a powerful mod loader for Sky: Children of the Light on PC. It 
 - Windows 10 or later
 - Visual Studio 2022 with C++ development tools
 - CMake 3.20 or higher
-- Vulkan SDK
 - x64 Native Tools Command Prompt for VS 2022
 
 ## Installation
@@ -129,10 +128,6 @@ This project is licensed under the terms of the license included with the reposi
 ## Contact
 
 For questions or issues specific to this optimized fork, please contact [XeTrinityz](https://github.com/XeTrinityz) or open an issue on GitHub.
-
-You can also join the Discord server for the original project for general discussions:
-
-[Discord Server](https://discord.gg/B5YEuvmT)
 
 ---
 

@@ -294,7 +294,7 @@ void SMLMainMenu() {
         ig::Separator();
         ig::Spacing();
 
-        ig::Text("v0.1.4 | FPS: %.f | %.2f ms | DeltaTime: %.2f", io.Framerate, 1000.0f / io.Framerate, io.DeltaTime);
+        ig::Text("v0.1.4 | FPS: %.f | %.2f ms", io.Framerate, 1000.0f / io.Framerate);
     }
     ig::End();
 }

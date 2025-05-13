@@ -9,7 +9,7 @@ project(
 )
 
 # Set CMake policies
-cmake_policy(SET CMP0074 NEW) # Use <PackageName>_ROOT variables
+cmake_policy(SET CMP0074 NEW)
 
 # Options
 option(BUILD_SHARED_LIBS "Build as shared library" ON)

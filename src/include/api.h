@@ -4,7 +4,6 @@
 #include <cstdint>
 #include <string>
 #include <vector>
-#include <libmem.h>
 
 #ifdef _MSC_VER
     #define MOD_API __declspec(dllexport)
