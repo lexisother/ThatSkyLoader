@@ -367,7 +367,13 @@ void Initialize() {
     WCHAR path[MAX_PATH];
     GetModuleFileNameW(NULL, path, MAX_PATH);
     std::wstring ws(path);
-    std::string fullPath(ws.begin(), ws.end());
+    
+    // Convert wide string to narrow string using Windows API for proper encoding
+    int size_needed = WideCharToMultiByte(CP_UTF8, 0, ws.c_str(), -1, NULL, 0, NULL, NULL);
+    std::string fullPath(size_needed, 0);
+    WideCharToMultiByte(CP_UTF8, 0, ws.c_str(), -1, &fullPath[0], size_needed, NULL, NULL);
+    fullPath.resize(strlen(fullPath.c_str())); // Adjust size to actual content
+    
     g_basePath = fullPath.substr(0, fullPath.find_last_of("\\/"));
 
     // Load PowerProf functions

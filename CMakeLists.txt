@@ -45,7 +45,11 @@ target_compile_features(powrprof PRIVATE cxx_std_20)
 target_compile_options(powrprof
     PRIVATE
         $<$<CXX_COMPILER_ID:MSVC>:/MD>
+        $<$<CXX_COMPILER_ID:MSVC>:/wd4244>
 )
+
+# Ensure consistent runtime library settings
+set_property(TARGET powrprof PROPERTY MSVC_RUNTIME_LIBRARY "MultiThreadedDLL")
 
 # Define preprocessor definitions
 target_compile_definitions(powrprof
@@ -55,8 +59,6 @@ target_compile_definitions(powrprof
 
 # Define external libraries
 set(EXTERNAL_LIBS 
-    ${CMAKE_CURRENT_SOURCE_DIR}/lib/release/libcpr.lib
-    ${CMAKE_CURRENT_SOURCE_DIR}/lib/release/libcurl_a.lib
     ${CMAKE_CURRENT_SOURCE_DIR}/lib/release/libmem.lib
     ${CMAKE_CURRENT_SOURCE_DIR}/lib/release/libimgui.lib
     ${CMAKE_CURRENT_SOURCE_DIR}/lib/release/vulkan.lib
