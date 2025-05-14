@@ -2,7 +2,7 @@
   <img src="https://img2.storyblok.com/fit-in/0x300/filters:format(webp)/f/108104/368x415/436d2e239c/sky-logo-white.png" alt="Sky: Children of the Light" width="300"/>
 </p>
 
-> **Note:** This repo is by [XeTrinityz](https://github.com/XeTrinityz) created from the original project by [Lukas](https://github.com/lukas0x1) which is no longer maintained. This repo includes significant optimizations and enhancements to the original codebase.
+> **Note:** This repo is by [XeTrinityz](https://github.com/XeTrinityz) created from the [original project](https://github.com/lukas0x1/sml-pc) by [Lukas](https://github.com/lukas0x1) which is no longer maintained. This repo includes significant optimizations and enhancements to the original codebase.
 
 ## Overview
 

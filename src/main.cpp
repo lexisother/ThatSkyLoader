@@ -84,9 +84,9 @@ void Print(const char* format, ...) {
 }
 
 void InitLogger() {
-    g_logFile.open("SML.log", std::ios::out | std::ios::app);
+    g_logFile.open("TSML.log", std::ios::out | std::ios::app);
 
-    // Redirect std::cout, and std::cerr to SML.log
+    // Redirect std::cout, and std::cerr to TSML.log
     static StreamBuf coutBuf(std::cout.rdbuf(), "[OUTPUT] ");
     std::cout.rdbuf(&coutBuf);
 
@@ -97,7 +97,7 @@ void InitLogger() {
 void InitConsole() {
     FreeConsole();
     AllocConsole();
-    SetConsoleTitleA("SML Console");
+    SetConsoleTitleA("TSML Console");
 
     if (IsValidCodePage(CP_UTF8)) {
         SetConsoleCP(CP_UTF8);
@@ -407,7 +407,7 @@ void Initialize() {
 
     // Set up console and logging
     InitConsole();
-    std::remove("SML.log");
+    std::remove("TSML.log");
     InitLogger();
 
     // Get base path
