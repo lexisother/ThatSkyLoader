@@ -97,7 +97,6 @@ extern "C" {
 }
 ```
 
-Refer to the documentation for a complete API reference.
 
 ## Project Structure
 
