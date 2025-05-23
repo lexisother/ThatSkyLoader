@@ -44,6 +44,7 @@ class ModLoader {
     static std::string GetModsDirectory();
     static bool EnsureModsDirectoryExists(const std::string& directory);
     static bool LoadModFromFile(const std::string& filePath);
+    static void LogSystemInfo();
 
 public:
     // Core functionality

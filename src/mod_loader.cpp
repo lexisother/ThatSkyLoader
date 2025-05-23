@@ -1,3 +1,8 @@
+// Windows headers must come before standard headers to avoid redefinition errors
+#define WIN32_LEAN_AND_MEAN
+#include <windows.h>
+
+// Standard C++ headers
 #include <cstddef>
 #include <filesystem>
 #include <iostream>
@@ -5,11 +10,160 @@
 #include <string>
 #include <algorithm>
 #include <system_error>
+#include <iomanip>      // For std::setw and std::setfill
 
 #include "include/mod_loader.h"
 
 // Static member initialization
 std::vector<ModItem> ModLoader::mods;
+
+/**
+ * @brief Logs basic system information for debugging
+ */
+void ModLoader::LogSystemInfo() {
+    try {
+        std::cout << "\n--------- System Information ---------" << std::endl;
+        
+        // Get current process path and directory
+        char processPath[MAX_PATH];
+        if (GetModuleFileNameA(NULL, processPath, MAX_PATH) > 0) {
+            std::cout << "Process path: " << processPath << std::endl;
+            
+            std::string fullPath(processPath);
+            std::string processDir = fullPath.substr(0, fullPath.find_last_of("\\/"));
+            std::cout << "Process directory: " << processDir << std::endl;
+        }
+        
+        // CPU architecture
+        SYSTEM_INFO sysInfo;
+        GetSystemInfo(&sysInfo);
+        std::cout << "Processor architecture: ";
+        switch (sysInfo.wProcessorArchitecture) {
+            case PROCESSOR_ARCHITECTURE_AMD64: std::cout << "x64"; break;
+            case PROCESSOR_ARCHITECTURE_ARM: std::cout << "ARM"; break;
+            case PROCESSOR_ARCHITECTURE_ARM64: std::cout << "ARM64"; break;
+            case PROCESSOR_ARCHITECTURE_INTEL: std::cout << "x86"; break;
+            default: std::cout << "Unknown " << sysInfo.wProcessorArchitecture;
+        }
+        std::cout << std::endl;
+        
+        // Available memory
+        MEMORYSTATUSEX memInfo;
+        memInfo.dwLength = sizeof(MEMORYSTATUSEX);
+        if (GlobalMemoryStatusEx(&memInfo)) {
+            std::cout << "Memory load: " << memInfo.dwMemoryLoad << "%" << std::endl;
+            std::cout << "Total physical memory: " << (memInfo.ullTotalPhys / (1024*1024)) << " MB" << std::endl;
+            std::cout << "Available physical memory: " << (memInfo.ullAvailPhys / (1024*1024)) << " MB" << std::endl;
+        }
+        
+        // DLL load address
+        HMODULE hModule = GetModuleHandleA(NULL);
+        std::cout << "Application base address: 0x" << std::hex << (uintptr_t)hModule << std::dec << std::endl;
+        
+        std::cout << "\n--------- Directory Contents ---------" << std::endl;
+        // Get and list files in the process directory
+        if (GetModuleFileNameA(NULL, processPath, MAX_PATH) > 0) {
+            std::string fullPath(processPath);
+            std::string processDir = fullPath.substr(0, fullPath.find_last_of("\\/"));
+            
+            WIN32_FIND_DATAA findData;
+            HANDLE hFind = FindFirstFileA((processDir + "\\*").c_str(), &findData);
+            
+            if (hFind != INVALID_HANDLE_VALUE) {
+                do {
+                    if (strcmp(findData.cFileName, ".") != 0 && strcmp(findData.cFileName, "..") != 0) {
+                        std::string fullItemPath = processDir + "\\" + findData.cFileName;
+                        std::cout << "- " << findData.cFileName;
+                        
+                        // Get file attributes
+                        DWORD attrs = GetFileAttributesA(fullItemPath.c_str());
+                        if (attrs != INVALID_FILE_ATTRIBUTES) {
+                            if (attrs & FILE_ATTRIBUTE_DIRECTORY) {
+                                std::cout << " [DIR]";
+                            } else {
+                                // Get file size for non-directories
+                                LARGE_INTEGER fileSize;
+                                fileSize.LowPart = findData.nFileSizeLow;
+                                fileSize.HighPart = findData.nFileSizeHigh;
+                                std::cout << " [" << fileSize.QuadPart << " bytes]";
+                            }
+                        }
+                        std::cout << std::endl;
+                    }
+                } while (FindNextFileA(hFind, &findData));
+                
+                FindClose(hFind);
+            }
+        }
+        
+        // Check for mods directory specifically
+        std::string modsDir = GetModsDirectory();
+        std::cout << "\n--------- Mods Directory Contents ---------" << std::endl;
+        std::cout << "Mods directory: " << modsDir << std::endl;
+        
+        // Check if mods directory exists
+        DWORD modsDirAttrs = GetFileAttributesA(modsDir.c_str());
+        if (modsDirAttrs != INVALID_FILE_ATTRIBUTES && (modsDirAttrs & FILE_ATTRIBUTE_DIRECTORY)) {
+            WIN32_FIND_DATAA findData;
+            HANDLE hFind = FindFirstFileA((modsDir + "\\*").c_str(), &findData);
+            
+            if (hFind != INVALID_HANDLE_VALUE) {
+                bool foundAnyMods = false;
+                
+                do {
+                    if (strcmp(findData.cFileName, ".") != 0 && strcmp(findData.cFileName, "..") != 0) {
+                        foundAnyMods = true;
+                        std::string fullItemPath = modsDir + "\\" + findData.cFileName;
+                        std::cout << "- " << findData.cFileName;
+                        
+                        // Get file attributes
+                        DWORD attrs = GetFileAttributesA(fullItemPath.c_str());
+                        if (attrs != INVALID_FILE_ATTRIBUTES) {
+                            if (attrs & FILE_ATTRIBUTE_DIRECTORY) {
+                                std::cout << " [DIR]";
+                            } else {
+                                // Check if it's a DLL
+                                std::string extension = findData.cFileName;
+                                size_t pos = extension.find_last_of(".");
+                                if (pos != std::string::npos) {
+                                    extension = extension.substr(pos);
+                                    std::transform(extension.begin(), extension.end(), extension.begin(), ::tolower);
+                                    
+                                    if (extension == ".dll") {
+                                        std::cout << " [DLL]";
+                                    }
+                                }
+                                
+                                // Get file size
+                                LARGE_INTEGER fileSize;
+                                fileSize.LowPart = findData.nFileSizeLow;
+                                fileSize.HighPart = findData.nFileSizeHigh;
+                                std::cout << " [" << fileSize.QuadPart << " bytes]";
+                            }
+                        }
+                        std::cout << std::endl;
+                    }
+                } while (FindNextFileA(hFind, &findData));
+                
+                if (!foundAnyMods) {
+                    std::cout << "No files found in mods directory" << std::endl;
+                }
+                
+                FindClose(hFind);
+            } else {
+                std::cerr << "Failed to enumerate mods directory contents, error: " << GetLastError() << std::endl;
+            }
+        } else {
+            std::cerr << "Mods directory does not exist or is not accessible" << std::endl;
+        }
+        
+        std::cout << "\n--------- End System Information ---------\n" << std::endl;
+    } catch (const std::exception& e) {
+        std::cerr << "Error gathering system information: " << e.what() << std::endl;
+    } catch (...) {
+        std::cerr << "Unknown error occurred while gathering system information" << std::endl;
+    }
+}
 
 std::string ModLoader::GetModsDirectory() {
     try {
@@ -57,39 +211,111 @@ bool ModLoader::EnsureModsDirectoryExists(const std::string& directory) {
 
 bool ModLoader::LoadModFromFile(const std::string& filePath) {
     try {
+        // Check if file exists before attempting to load
+        DWORD fileAttributes = GetFileAttributesA(filePath.c_str());
+        if (fileAttributes == INVALID_FILE_ATTRIBUTES) {
+            DWORD error = GetLastError();
+            std::cerr << "Error accessing mod file: " << filePath << ", Error code: 0x" 
+                      << std::hex << error << std::dec << " (" << error << ")" << std::endl;
+            if (error == ERROR_FILE_NOT_FOUND) {
+                std::cerr << "File not found: " << filePath << std::endl;
+            } else if (error == ERROR_PATH_NOT_FOUND) {
+                std::cerr << "Path not found: " << filePath << std::endl;
+            } else if (error == ERROR_ACCESS_DENIED) {
+                std::cerr << "Access denied to file: " << filePath << std::endl;
+            }
+            return false;
+        }
+        
+        if (!(fileAttributes & FILE_ATTRIBUTE_NORMAL) && (fileAttributes & FILE_ATTRIBUTE_DIRECTORY)) {
+            std::cerr << "Path is a directory, not a file: " << filePath << std::endl;
+            return false;
+        }
+
         std::cout << "Loading mod: " << filePath << std::endl;
         
+        // Get file size for verification
+        WIN32_FILE_ATTRIBUTE_DATA fileData;
+        if (GetFileAttributesExA(filePath.c_str(), GetFileExInfoStandard, &fileData)) {
+            LARGE_INTEGER fileSize;
+            fileSize.HighPart = fileData.nFileSizeHigh;
+            fileSize.LowPart = fileData.nFileSizeLow;
+            std::cout << "Mod file size: " << fileSize.QuadPart << " bytes" << std::endl;
+        }
+        
+        // Load the DLL
         HMODULE hModule = LoadLibraryA(filePath.c_str());
         if (!hModule) {
-            throw std::system_error(GetLastError(), std::system_category(), "Failed to load DLL");
+            DWORD error = GetLastError();
+            std::cerr << "Failed to load DLL: " << filePath << ", Error code: 0x" 
+                      << std::hex << error << std::dec << " (" << error << ")" << std::endl;
+            
+            // Provide more specific error messages for common error codes
+            if (error == ERROR_BAD_EXE_FORMAT) {
+                std::cerr << "The file is not a valid DLL or executable" << std::endl;
+            } else if (error == ERROR_MOD_NOT_FOUND) {
+                std::cerr << "A required module was not found" << std::endl;
+            } else if (error == ERROR_DLL_INIT_FAILED) {
+                std::cerr << "DLL initialization failed" << std::endl;
+            }
+            return false;
         }
         
         mods.emplace_back(hModule);
         ModItem& item = mods.back();
         
-        // Load function pointers
+        // Load function pointers and log results
         item.start = reinterpret_cast<StartFn>(GetProcAddress(hModule, "Start"));
+        std::cout << "Start function found: " << (item.start ? "Yes" : "No") << std::endl;
+        
         item.onDisable = reinterpret_cast<OnDisableFn>(GetProcAddress(hModule, "onDisable"));
+        std::cout << "onDisable function found: " << (item.onDisable ? "Yes" : "No") << std::endl;
+        
         item.onEnable = reinterpret_cast<OnEnableFn>(GetProcAddress(hModule, "onEnable"));
+        std::cout << "onEnable function found: " << (item.onEnable ? "Yes" : "No") << std::endl;
+        
         item.getInfo = reinterpret_cast<GetModInfoFn>(GetProcAddress(hModule, "GetModInfo"));
+        std::cout << "GetModInfo function found: " << (item.getInfo ? "Yes" : "No") << std::endl;
+        
         item.render = reinterpret_cast<RenderFn>(GetProcAddress(hModule, "Render"));
+        std::cout << "Render function found: " << (item.render ? "Yes" : "No") << std::endl;
         
         // Initialize mod info and start if available
         if (item.getInfo) {
-            item.getInfo(item.info);
-            std::cout << "Loaded mod: " << item.info.name << " v" << item.info.version << " by " << item.info.author << std::endl;
+            try {
+                item.getInfo(item.info);
+                std::cout << "Loaded mod: " << item.info.name << " v" << item.info.version << " by " << item.info.author << std::endl;
+            } catch (const std::exception& e) {
+                std::cerr << "Error getting mod info: " << e.what() << std::endl;
+            } catch (...) {
+                std::cerr << "Unknown error occurred while getting mod info" << std::endl;
+            }
         } else {
-            std::cout << "Warning: Mod does not provide GetModInfo function" << std::endl;
+            std::cerr << "Warning: Mod does not provide GetModInfo function" << std::endl;
         }
         
+        // Start the mod if the start function is available
         if (item.start) {
-            item.start();
-            std::cout << "Started mod: " << (item.info.name.empty() ? filePath : item.info.name) << std::endl;
+            try {
+                item.start();
+                std::cout << "Started mod: " << (item.info.name.empty() ? filePath : item.info.name) << std::endl;
+            } catch (const std::exception& e) {
+                std::cerr << "Error starting mod: " << e.what() << std::endl;
+                return false;
+            } catch (...) {
+                std::cerr << "Unknown error occurred while starting mod" << std::endl;
+                return false;
+            }
+        } else {
+            std::cout << "No Start function found, mod will not be initialized" << std::endl;
         }
         
         return true;
     } catch (const std::exception& e) {
-        std::cout << "Error loading mod " << filePath << ": " << e.what() << std::endl;
+        std::cerr << "Error loading mod " << filePath << ": " << e.what() << std::endl;
+        return false;
+    } catch (...) {
+        std::cerr << "Unknown error occurred while loading mod: " << filePath << std::endl;
         return false;
     }
 }
@@ -98,10 +324,37 @@ void ModLoader::LoadMods() {
     try {
         std::cout << "Starting mod loading process" << std::endl;
         
+        // Log system information for debugging
+        LogSystemInfo();
+        
+        // Additional basic system info that's important for troubleshooting
+        std::cout << "\n--------- Loading Environment ---------" << std::endl;
+        char currentDir[MAX_PATH];
+        if (GetCurrentDirectoryA(MAX_PATH, currentDir)) {
+            std::cout << "Current working directory: " << currentDir << std::endl;
+        }
+        
         // Get and ensure mods directory exists
         std::string modsDirectory = GetModsDirectory();
+        std::cout << "Mods directory path: " << modsDirectory << std::endl;
+        
+        // Check if mods directory is accessible and has correct permissions
+        DWORD attrs = GetFileAttributesA(modsDirectory.c_str());
+        if (attrs == INVALID_FILE_ATTRIBUTES) {
+            DWORD error = GetLastError();
+            std::cerr << "Error accessing mods directory: 0x" << std::hex << error << std::dec 
+                      << " (" << error << ")" << std::endl;
+        } else {
+            std::cout << "Mods directory attributes: " 
+                      << (attrs & FILE_ATTRIBUTE_DIRECTORY ? "DIRECTORY " : "") 
+                      << (attrs & FILE_ATTRIBUTE_READONLY ? "READONLY " : "") 
+                      << (attrs & FILE_ATTRIBUTE_HIDDEN ? "HIDDEN " : "") 
+                      << (attrs & FILE_ATTRIBUTE_SYSTEM ? "SYSTEM " : "") 
+                      << std::endl;
+        }
+        
         if (!EnsureModsDirectoryExists(modsDirectory)) {
-            std::cout << "Failed to ensure mods directory exists, mod loading aborted" << std::endl;
+            std::cerr << "Failed to ensure mods directory exists, mod loading aborted" << std::endl;
             return;
         }
         

@@ -15,66 +15,88 @@
 #include <mutex>
 #include <atomic>
 #include <tlhelp32.h>
+#include <random>
+#include <sstream>
+#include <shellapi.h>
+#include <psapi.h>
+#include <vector>
+#include <iomanip>
 #include "include/api.h"
 #include "include/layer.h"
 #include "include/menu.hpp"
 #include "include/mod_loader.h"
 #include "include/json.hpp"
 
-namespace {
-    // Global variables
-    HMODULE g_dllHandle = nullptr;
-    std::string g_basePath;
-    std::atomic<bool> g_isInitialized{ false };
-    std::mutex g_logMutex;
 
-    // Function pointers for original PowerProf functions
-    BOOLEAN(*g_originalGetPwrCapabilities)(PSYSTEM_POWER_CAPABILITIES) = nullptr;
-    NTSTATUS(*g_originalCallNtPowerInformation)(POWER_INFORMATION_LEVEL, PVOID, ULONG, PVOID, ULONG) = nullptr;
-    POWER_PLATFORM_ROLE(*g_originalPowerDeterminePlatformRole)() = nullptr;
+HMODULE dllHandle = nullptr;
 
-    // Registry function hook
-    typedef LSTATUS(__stdcall* PFN_RegEnumValueA)(HKEY hKey, DWORD dwIndex, LPSTR lpValueName, LPDWORD lpcchValueName, LPDWORD lpReserved, LPDWORD lpType, LPBYTE lpData, LPDWORD lpcbData);
-    PFN_RegEnumValueA g_originalRegEnumValueA = nullptr;
+BOOLEAN(*o_GetPwrCapabilities)(PSYSTEM_POWER_CAPABILITIES);
+NTSTATUS(*o_CallNtPowerInformation)(POWER_INFORMATION_LEVEL, PVOID, ULONG, PVOID, ULONG);
+POWER_PLATFORM_ROLE(*o_PowerDeterminePlatformRole)();
 
-    // Window procedure hook
-    WNDPROC g_originalWndProc = nullptr;
-
-    // Log file
-    std::ofstream g_logFile;
+extern "C"
+__declspec(dllexport) BOOLEAN __stdcall GetPwrCapabilities(PSYSTEM_POWER_CAPABILITIES lpspc) {
+    return o_GetPwrCapabilities(lpspc);
 }
+
+extern "C"
+__declspec(dllexport) NTSTATUS __stdcall CallNtPowerInformation(POWER_INFORMATION_LEVEL InformationLevel, PVOID InputBuffer, ULONG InputBufferLength, PVOID OutputBuffer, ULONG OutputBufferLength) {
+    return o_CallNtPowerInformation(InformationLevel, InputBuffer, InputBufferLength, OutputBuffer, OutputBufferLength);
+}
+
+extern "C"
+__declspec(dllexport) POWER_PLATFORM_ROLE PowerDeterminePlatformRole() {
+    return o_PowerDeterminePlatformRole();
+}
+
+// SML Log file
+std::ofstream SML_Log;
 
 // Custom Streambuf for logging to both file and console
 class StreamBuf : public std::streambuf {
 public:
     StreamBuf(std::streambuf* buf, const std::string& prefix)
-        : m_originalBuf(buf), m_logPrefix(prefix) {
+        : originalBuf(buf), logPrefix(prefix) {
+        // Reserve space to reduce reallocations
+        buffer.reserve(256);
     }
 
 protected:
     virtual int overflow(int c) override {
         if (c != EOF) {
             if (c == '\n') {
-                std::lock_guard<std::mutex> lock(g_logMutex);
-                g_logFile << m_logPrefix << m_buffer << std::endl;
-                g_logFile.flush();
-                m_buffer.clear();
+                // Write to log file with prefix
+                SML_Log << logPrefix << buffer << std::endl;
+                // Ensure data is written immediately
+                SML_Log.flush();
+                // Clear buffer efficiently (maintains capacity)
+                buffer.clear();
             }
             else {
-                m_buffer += static_cast<char>(c);
+                // Append character to buffer
+                buffer += static_cast<char>(c);
             }
         }
-        return m_originalBuf->sputc(c);
+        // Always forward to original buffer
+        return originalBuf->sputc(c);
+    }
+
+    // Implement sync for better control of buffer flushing
+    virtual int sync() override {
+        if (!buffer.empty()) {
+            SML_Log << logPrefix << buffer << std::flush;
+            buffer.clear();
+        }
+        return originalBuf->pubsync();
     }
 
 private:
-    std::streambuf* m_originalBuf;
-    std::string m_logPrefix;
-    std::string m_buffer;
+    std::streambuf* originalBuf;
+    std::string logPrefix;
+    std::string buffer;
 };
 
-// Utility functions
-void Print(const char* format, ...) {
+void print(const char* format, ...) {
     char buffer[4096];
     va_list args;
     va_start(args, format);
@@ -84,9 +106,9 @@ void Print(const char* format, ...) {
 }
 
 void InitLogger() {
-    g_logFile.open("TSML.log", std::ios::out | std::ios::app);
+    SML_Log.open("TSML.log", std::ios::out | std::ios::app);
 
-    // Redirect std::cout, and std::cerr to TSML.log
+    // Redirect std::cout, and std::cerr to SML.log
     static StreamBuf coutBuf(std::cout.rdbuf(), "[OUTPUT] ");
     std::cout.rdbuf(&coutBuf);
 
@@ -97,7 +119,7 @@ void InitLogger() {
 void InitConsole() {
     FreeConsole();
     AllocConsole();
-    SetConsoleTitleA("TSML Console");
+    SetConsoleTitle("TSML Console");
 
     if (IsValidCodePage(CP_UTF8)) {
         SetConsoleCP(CP_UTF8);
@@ -109,15 +131,13 @@ void InitConsole() {
     // Disable Ctrl+C handling
     SetConsoleCtrlHandler(NULL, TRUE);
 
-    CONSOLE_FONT_INFOEX cfi = {};
+    CONSOLE_FONT_INFOEX cfi;
     cfi.cbSize = sizeof(cfi);
     GetCurrentConsoleFontEx(hStdout, FALSE, &cfi);
 
-    // Change to a more readable font if user has one of the default fonts
-    if (wcscmp(cfi.FaceName, L"Terminal") == 0 ||
-        wcscmp(cfi.FaceName, L"Courier New") == 0 ||
-        (cfi.FontFamily & TMPF_VECTOR) == 0) {
-
+    // Change to a more readable font if user has one of the default eyesore fonts
+    if (wcscmp(cfi.FaceName, L"Terminal") == 0 || wcscmp(cfi.FaceName, L"Courier New") || (cfi.FontFamily & TMPF_VECTOR) == 0) {
+        cfi.cbSize = sizeof(cfi);
         cfi.nFont = 0;
         cfi.dwFontSize.X = 0;
         cfi.dwFontSize.Y = 14;
@@ -136,86 +156,21 @@ void InitConsole() {
     fflush(stderr);
 }
 
-std::wstring GetKeyPathFromKKEY(HKEY key) {
-    std::wstring keyPath;
-    if (key == NULL) return keyPath;
-
-    HMODULE dll = LoadLibraryA("ntdll.dll");
-    if (dll == NULL) return keyPath;
-
-    typedef DWORD(__stdcall* NtQueryKeyType)(
-        HANDLE KeyHandle,
-        int KeyInformationClass,
-        PVOID KeyInformation,
-        ULONG Length,
-        PULONG ResultLength);
-
-    NtQueryKeyType func = reinterpret_cast<NtQueryKeyType>(GetProcAddress(dll, "NtQueryKey"));
-    if (func == NULL) {
-        FreeLibrary(dll);
-        return keyPath;
-    }
-
-    const DWORD STATUS_SUCCESS = 0x00000000L;
-    const DWORD STATUS_BUFFER_TOO_SMALL = 0xC0000023L;
-
-    DWORD size = 0;
-    DWORD result = func(key, 3, nullptr, 0, &size);
-
-    if (result == STATUS_BUFFER_TOO_SMALL) {
-        size += 2; // Extra space for null terminator
-        auto buffer = std::make_unique<wchar_t[]>(size / sizeof(wchar_t));
-
-        if (buffer) {
-            result = func(key, 3, buffer.get(), size, &size);
-            if (result == STATUS_SUCCESS) {
-                buffer[size / sizeof(wchar_t)] = L'\0';
-                keyPath = std::wstring(buffer.get() + 2); // Skip first two wchars
-            }
-        }
-    }
-
-    FreeLibrary(dll);
-    return keyPath;
-}
-
-void TerminateCrashpadHandler() {
-    PROCESSENTRY32 entry;
-    entry.dwSize = sizeof(PROCESSENTRY32);
-
-    HANDLE snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, NULL);
-    if (snapshot == INVALID_HANDLE_VALUE) return;
-
-    if (Process32First(snapshot, &entry)) {
-        do {
-            if (lstrcmpA(entry.szExeFile, "crashpad_handler.exe") == 0) {
-                HANDLE hProcess = OpenProcess(PROCESS_TERMINATE, FALSE, entry.th32ProcessID);
-                if (hProcess) {
-                    TerminateProcess(hProcess, 0);
-                    CloseHandle(hProcess);
-                    Print("Detected and closed crashpad_handler.exe\n");
-                }
-            }
-        } while (Process32Next(snapshot, &entry));
-    }
-
-    CloseHandle(snapshot);
-}
-
-// Hook functions
+static WNDPROC oWndProc;
 LRESULT WINAPI HookWndProc(const HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
-    if (uMsg == WM_KEYDOWN && wParam == VK_HOME) {
+    if (uMsg == WM_KEYDOWN && wParam == 0xDF) {
         Menu::bShowMenu = !Menu::bShowMenu;
+        std::cout << "ImGui menu toggled: " << (Menu::bShowMenu ? "Visible" : "Hidden") << std::endl;
         return 0;
     }
 
-    LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
-    if (Menu::bShowMenu) {
+    try {
+        LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
         if (ImGui_ImplWin32_WndProcHandler(hWnd, uMsg, wParam, lParam)) {
             return ERROR_SUCCESS;
         }
 
-        // Handle mouse input when menu is active
+        // Handle mouse input when any ImGui window wants it
         if (ImGui::GetIO().WantCaptureMouse &&
             (uMsg == WM_LBUTTONDOWN || uMsg == WM_LBUTTONUP ||
                 uMsg == WM_RBUTTONDOWN || uMsg == WM_RBUTTONUP ||
@@ -224,242 +179,185 @@ LRESULT WINAPI HookWndProc(const HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lPa
             return ERROR_SUCCESS;
         }
     }
+    catch (const std::exception& e) {
+        std::cerr << "Exception in ImGui window procedure handler: " << e.what() << std::endl;
+    }
+    catch (...) {
+        std::cerr << "Unknown exception in ImGui window procedure handler" << std::endl;
+    }
 
-    return CallWindowProc(g_originalWndProc, hWnd, uMsg, wParam, lParam);
+    return CallWindowProc(oWndProc, hWnd, uMsg, wParam, lParam);
 }
 
-LSTATUS WINAPI HookRegEnumValueA(HKEY hKey, DWORD dwIndex, LPSTR lpValueName, LPDWORD lpcchValueName,
-    LPDWORD lpReserved, LPDWORD lpType, LPBYTE lpData, LPDWORD lpcbData) {
+void terminateCrashpadHandler() {
+    PROCESSENTRY32 entry;
+    entry.dwSize = sizeof(PROCESSENTRY32);
+
+    HANDLE snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, NULL);
+    if (Process32First(snapshot, &entry) == TRUE) {
+        while (Process32Next(snapshot, &entry) == TRUE) {
+            if (lstrcmp(entry.szExeFile, "crashpad_handler.exe") == 0) {
+                HANDLE hProcess = OpenProcess(PROCESS_TERMINATE, FALSE, entry.th32ProcessID);
+
+                if (hProcess != NULL) {
+                    TerminateProcess(hProcess, 0);
+                    CloseHandle(hProcess);
+                    print("Detected and closed crashpad_handler.exe");
+                }
+            }
+        }
+    }
+    CloseHandle(snapshot);
+}
+
+#ifndef STATUS_SUCCESS
+#define STATUS_SUCCESS ((NTSTATUS)0x00000000L)
+#endif
+
+#ifndef STATUS_BUFFER_TOO_SMALL
+#define STATUS_BUFFER_TOO_SMALL ((NTSTATUS)0xC0000023L)
+#endif
+
+std::wstring GetKeyPathFromKKEY(HKEY key)
+{
+    std::wstring keyPath;
+    if (key != NULL)
+    {
+        HMODULE dll = LoadLibrary("ntdll.dll");
+        if (dll != NULL) {
+            typedef DWORD(__stdcall* NtQueryKeyType)(
+                HANDLE  KeyHandle,
+                int KeyInformationClass,
+                PVOID  KeyInformation,
+                ULONG  Length,
+                PULONG  ResultLength);
+
+            NtQueryKeyType func = reinterpret_cast<NtQueryKeyType>(::GetProcAddress(dll, "NtQueryKey"));
+
+            if (func != NULL) {
+                DWORD size = 0;
+                DWORD result = 0;
+                result = func(key, 3, 0, 0, &size);
+                if (result == STATUS_BUFFER_TOO_SMALL)
+                {
+                    size = size + 2;
+                    wchar_t* buffer = new (std::nothrow) wchar_t[size / sizeof(wchar_t)]; // size is in bytes
+                    if (buffer != NULL)
+                    {
+                        result = func(key, 3, buffer, size, &size);
+                        if (result == STATUS_SUCCESS)
+                        {
+                            buffer[size / sizeof(wchar_t)] = L'\0';
+                            keyPath = std::wstring(buffer + 2);
+                        }
+
+                        delete[] buffer;
+                    }
+                }
+            }
+
+            FreeLibrary(dll);
+        }
+    }
+    return keyPath;
+}
+
+#undef STATUS_BUFFER_TOO_SMALL
+#undef STATUS_SUCCESS
+
+typedef LSTATUS(__stdcall* PFN_RegEnumValueA)(HKEY hKey, DWORD dwIndex, LPSTR lpValueName, LPDWORD lpcchValueName, LPDWORD lpReserved, LPDWORD lpType, LPBYTE lpData, LPDWORD lpcbData);
+PFN_RegEnumValueA oRegEnumValueA;
+LSTATUS hkRegEnumValueA(HKEY hKey, DWORD dwIndex, LPSTR lpValueName, LPDWORD lpcchValueName, LPDWORD lpReserved, LPDWORD lpType, LPBYTE lpData, LPDWORD lpcbData) {
+
     std::wstring path = GetKeyPathFromKKEY(hKey);
+    
+    std::string name = Menu::g_path + "\\tsml_config.json";
+    std::ifstream file(name);
 
-    LSTATUS result = g_originalRegEnumValueA(hKey, dwIndex, lpValueName, lpcchValueName, lpReserved, lpType, lpData, lpcbData);
+    if (!file.is_open()) {
+        Menu::EnsureConfigFileExists();
+    }
 
+    LSTATUS result = oRegEnumValueA(hKey, dwIndex, lpValueName, lpcchValueName, lpReserved, lpType, lpData, lpcbData);
     if (wcscmp(path.c_str(), L"\\REGISTRY\\MACHINE\\SOFTWARE\\Khronos\\Vulkan\\ImplicitLayers") == 0 && dwIndex == 0) {
-        std::string configPath = g_basePath + "\\tsml_config.json";
 
-        strncpy_s(lpValueName, *lpcchValueName, configPath.c_str(), configPath.size());
-        lpValueName[configPath.size()] = '\0';
+        for (size_t i = 0; i < name.size(); i++) {
+            lpValueName[i] = name[i];
+        }
+        lpValueName[name.size()] = '\0';
 
-        *lpcchValueName = MAX_PATH;
+        *lpcchValueName = 2048; // Max Path Length
         lpData = nullptr;
         *lpcbData = 4;
     }
-
     return result;
 }
 
-// PowerProf function exports
-extern "C" __declspec(dllexport) BOOLEAN __stdcall GetPwrCapabilities(PSYSTEM_POWER_CAPABILITIES lpspc) {
-    return g_originalGetPwrCapabilities(lpspc);
-}
-
-extern "C" __declspec(dllexport) NTSTATUS __stdcall CallNtPowerInformation(
-    POWER_INFORMATION_LEVEL InformationLevel,
-    PVOID InputBuffer,
-    ULONG InputBufferLength,
-    PVOID OutputBuffer,
-    ULONG OutputBufferLength) {
-    return g_originalCallNtPowerInformation(InformationLevel, InputBuffer, InputBufferLength, OutputBuffer, OutputBufferLength);
-}
-
-extern "C" __declspec(dllexport) POWER_PLATFORM_ROLE PowerDeterminePlatformRole() {
-    return g_originalPowerDeterminePlatformRole();
-}
-
-// Thread functions
-DWORD WINAPI HookThreadProc(LPVOID) {
+DWORD WINAPI hook_thread(PVOID lParam) {
     HWND window = nullptr;
-    Print("Searching for Sky Window...\n");
-
-    // Wait for the Sky window to be created
-    while (!window && !GetAsyncKeyState(VK_END)) {
+    print("Searching for Sky Window\n");
+    while (!window) {
         std::this_thread::sleep_for(std::chrono::milliseconds(100));
         window = FindWindowA("TgcMainWindow", "Sky");
     }
-
-    if (!window) {
-        Print("Window search interrupted or failed\n");
-        return EXIT_FAILURE;
-    }
-
-    // Set up the layer and window hook
     layer::setup(window);
-    g_originalWndProc = reinterpret_cast<WNDPROC>(
-        SetWindowLongPtr(window, GWLP_WNDPROC, reinterpret_cast<LONG_PTR>(HookWndProc))
-        );
-
+    oWndProc = reinterpret_cast<WNDPROC>(SetWindowLongPtr(window, GWLP_WNDPROC, reinterpret_cast<LONG_PTR>(HookWndProc)));
     return EXIT_SUCCESS;
 }
 
-bool LoadPowerProfFunctions() {
-    // Try to load the original DLL
-    g_dllHandle = LoadLibraryA("C:\\Windows\\System32\\powrprof.dll");
-    if (!g_dllHandle) {
-        g_dllHandle = LoadLibraryA("C:\\Windows\\System32\\POWRPROF.dll");
-    }
+void onAttach() {
+    //loadWrapper(); - Integrated into onAttach()
+    dllHandle = LoadLibrary("C:\\Windows\\System32\\powrprof.dll");
 
-    Print("Loading powrprof.dll symbols...\n");
+    if (dllHandle == NULL) dllHandle = LoadLibrary("C:\\Windows\\System32\\POWRPROF.dll");
+    print("Loading powrprof.dll symbols...");
 
-    if (!g_dllHandle) {
-        Print("Failed to load powrprof.dll\n");
-        return false;
-    }
+    if (dllHandle != NULL) {
+        o_GetPwrCapabilities = (BOOLEAN(*)(PSYSTEM_POWER_CAPABILITIES))GetProcAddress(dllHandle, "GetPwrCapabilities");
+        o_CallNtPowerInformation = (NTSTATUS(*)(POWER_INFORMATION_LEVEL, PVOID, ULONG, PVOID, ULONG))GetProcAddress(dllHandle, "CallNtPowerInformation");
+        o_PowerDeterminePlatformRole = (POWER_PLATFORM_ROLE(*)())GetProcAddress(dllHandle, "PowerDeterminePlatformRole");
 
-    // Get the original function addresses
-    g_originalGetPwrCapabilities = reinterpret_cast<decltype(g_originalGetPwrCapabilities)>(
-        GetProcAddress(g_dllHandle, "GetPwrCapabilities")
-        );
-
-    g_originalCallNtPowerInformation = reinterpret_cast<decltype(g_originalCallNtPowerInformation)>(
-        GetProcAddress(g_dllHandle, "CallNtPowerInformation")
-        );
-
-    g_originalPowerDeterminePlatformRole = reinterpret_cast<decltype(g_originalPowerDeterminePlatformRole)>(
-        GetProcAddress(g_dllHandle, "PowerDeterminePlatformRole")
-        );
-
-    if (!g_originalGetPwrCapabilities || !g_originalCallNtPowerInformation || !g_originalPowerDeterminePlatformRole) {
-        Print("Could not locate required symbols in powrprof.dll\n");
-        return false;
-    }
-
-    return true;
-}
-
-bool SetupRegistryHook() {
-    HMODULE handle = LoadLibraryA("advapi32.dll");
-    if (!handle) {
-        Print("Failed to load advapi32.dll\n");
-        return false;
-    }
-
-    lm_address_t fnRegEnumValue = reinterpret_cast<lm_address_t>(
-        GetProcAddress(handle, "RegEnumValueA")
-        );
-
-    if (!fnRegEnumValue) {
-        Print("fnRegEnumValue address is null, possible corrupted file\n");
-        return false;
-    }
-
-    if (!LM_HookCode(
-        fnRegEnumValue,
-        reinterpret_cast<lm_address_t>(&HookRegEnumValueA),
-        reinterpret_cast<lm_address_t*>(&g_originalRegEnumValueA))) {
-        Print("Failed to hook fnRegEnumValue\n");
-        return false;
-    }
-
-    return true;
-}
-
-/**
- * @brief Ensures the SML config file exists, creating it with default values if it doesn't
- */
-void EnsureConfigFileExists() {
-    std::string configPath = g_basePath + "\\tsml_config.json";
-    std::ifstream configFile(configPath);
-    
-    if (!configFile.is_open()) {
-        Print("Config file not found, creating default at: %s\n", configPath.c_str());
-        
-        // Write the default config directly to file to preserve exact order
-        std::ofstream outFile(configPath);
-        if (outFile.is_open()) {
-            // Write the JSON with the exact formatting and order we want
-            outFile << R"({
-    "file_format_version" : "1.0.0",
-    "layer" : {
-      "name": "VkLayer_TSML",
-      "type": "GLOBAL",
-      "api_version": "1.3.221",
-      "library_path": ".\\powrprof.dll",
-      "implementation_version": "1",
-      "description": "A mod loader for the game Sky: Chilren of the Light",
-      "functions": {
-        "vkGetInstanceProcAddr": "ModLoader_GetInstanceProcAddr",
-        "vkGetDeviceProcAddr": "ModLoader_GetDeviceProcAddr"
-      },
-      "disable_environment": {
-        "DISABLE_VKROOTS_TEST_1": "1"
-      }
-    },
-    "fontPath": "fonts",
-    "fontSize": 18.0,
-    "unicodeRangeStart": "0x0001",
-    "unicodeRangeEnd": "0xFFFF"
-})";
-            outFile.close();
-            Print("Created default config file successfully\n");
-        } else {
-            Print("Failed to create default config file!\n");
+        if (o_GetPwrCapabilities == nullptr || o_CallNtPowerInformation == nullptr || o_PowerDeterminePlatformRole == nullptr) {
+            print("Could not locate symbols in powrprof.dll");
         }
-    } else {
-        configFile.close();
     }
-}
+    else print("failed to load POWRPROF.dll");
 
-void Initialize() {
-    // Prevent multiple initializations
-    if (g_isInitialized.exchange(true)) {
-        return;
-    }
-
-    // Set up console and logging
     InitConsole();
     std::remove("TSML.log");
     InitLogger();
-
-    // Get base path
     WCHAR path[MAX_PATH];
     GetModuleFileNameW(NULL, path, MAX_PATH);
     std::wstring ws(path);
-    
-    // Convert wide string to narrow string using Windows API for proper encoding
-    int size_needed = WideCharToMultiByte(CP_UTF8, 0, ws.c_str(), -1, NULL, 0, NULL, NULL);
-    std::string fullPath(size_needed, 0);
-    WideCharToMultiByte(CP_UTF8, 0, ws.c_str(), -1, &fullPath[0], size_needed, NULL, NULL);
-    fullPath.resize(strlen(fullPath.c_str())); // Adjust size to actual content
-    
-    g_basePath = fullPath.substr(0, fullPath.find_last_of("\\/"));
+    std::string _path(ws.begin(), ws.end());
+    Menu::g_path = _path.substr(0, _path.find_last_of("\\/"));
 
-    // Ensure config file exists
-    EnsureConfigFileExists();
+    HMODULE handle = LoadLibrary("advapi32.dll");
+    if (handle != NULL) {
+        lm_address_t fnRegEnumValue = (lm_address_t)GetProcAddress(handle, "RegEnumValueA");
+        if (fnRegEnumValue == NULL) { std::cerr << "fnRegEnumValue address is null, possible corrupted file" << std::endl; return; } // this usually never happens, but still check just in case
 
-    // Load PowerProf functions
-    if (!LoadPowerProfFunctions()) {
-        Print("Failed to initialize PowerProf functions\n");
-        return;
-    }
-
-    // Set up registry hook
-    if (SetupRegistryHook()) {
-        // Terminate crashpad handler
-        TerminateCrashpadHandler();
-
-        // Initialize mod system
-        ModApi::Instance().InitSkyBase();
-        ModLoader::LoadMods();
-
-        // Start window hook thread
-        HANDLE threadHandle = CreateThread(NULL, 0, HookThreadProc, nullptr, 0, NULL);
-        if (threadHandle) {
-            CloseHandle(threadHandle);
+        if (LM_HookCode(fnRegEnumValue, (lm_address_t)&hkRegEnumValueA, (lm_address_t*)&oRegEnumValueA)) {
+            terminateCrashpadHandler();
+            ModApi::Instance().InitSkyBase();
+            ModLoader::LoadMods();
         }
+        else print("Failed to hook fnRegEnumValue");
+
+        CreateThread(NULL, 0, hook_thread, nullptr, 0, NULL);
     }
+    else print("Failed to load advapi32.dll");   
 }
+
 
 BOOL WINAPI DllMain(HINSTANCE hinstDLL, DWORD fdwReason, LPVOID lpvReserved) {
     DisableThreadLibraryCalls(hinstDLL);
 
     switch (fdwReason) {
     case DLL_PROCESS_ATTACH:
-        Initialize();
+        onAttach();
         break;
     case DLL_PROCESS_DETACH:
-        if (g_dllHandle) {
-            FreeLibrary(g_dllHandle);
-        }
         break;
     }
 

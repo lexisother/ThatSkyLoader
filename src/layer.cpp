@@ -230,18 +230,76 @@ static bool CreateDeviceVK() {
             return false;
         }
 
-        // If multiple GPUs are available, prefer a discrete GPU
-        int use_gpu = 0;
+        // Log all available GPUs
+        std::cout << "--------- Available GPUs ---------" << std::endl;
         for (int i = 0; i < static_cast<int>(gpu_count); ++i) {
             VkPhysicalDeviceProperties properties;
             vkGetPhysicalDeviceProperties(gpus[i], &properties);
-            if (properties.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU) {
-                use_gpu = i;
-                break;
+            
+            // Get device type as string
+            std::string deviceType;
+            switch (properties.deviceType) {
+                case VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU: deviceType = "Integrated GPU"; break;
+                case VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU: deviceType = "Discrete GPU"; break;
+                case VK_PHYSICAL_DEVICE_TYPE_VIRTUAL_GPU: deviceType = "Virtual GPU"; break;
+                case VK_PHYSICAL_DEVICE_TYPE_CPU: deviceType = "CPU"; break;
+                default: deviceType = "Unknown"; break;
             }
+            
+            std::cout << "GPU " << i << ": " << properties.deviceName << ", Type: " << deviceType
+                      << ", Vendor ID: 0x" << std::hex << properties.vendorID << std::dec
+                      << ", Device ID: 0x" << std::hex << properties.deviceID << std::dec << std::endl;
         }
+        std::cout << "----------------------------------" << std::endl;
 
+        // GPU selection with ranking system
+        // Priority: 1. Discrete GPU, 2. Integrated GPU, 3. Virtual GPU, 4. CPU, 5. Other
+        struct GPURanking {
+            int index;
+            int rank; // Lower is better
+        };
+        
+        std::vector<GPURanking> rankedGPUs;
+        
+        for (int i = 0; i < static_cast<int>(gpu_count); ++i) {
+            VkPhysicalDeviceProperties properties;
+            vkGetPhysicalDeviceProperties(gpus[i], &properties);
+            
+            GPURanking ranking{i, 999}; // Default rank
+            
+            switch (properties.deviceType) {
+                case VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU: ranking.rank = 1; break;
+                case VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU: ranking.rank = 2; break;
+                case VK_PHYSICAL_DEVICE_TYPE_VIRTUAL_GPU: ranking.rank = 3; break;
+                case VK_PHYSICAL_DEVICE_TYPE_CPU: ranking.rank = 4; break;
+                default: ranking.rank = 5; break;
+            }
+            
+            rankedGPUs.push_back(ranking);
+        }
+        
+        // Sort GPUs by rank (lower rank = better)
+        std::sort(rankedGPUs.begin(), rankedGPUs.end(), 
+            [](const GPURanking& a, const GPURanking& b) { return a.rank < b.rank; });
+        
+        // Select best GPU (first in sorted list)
+        int use_gpu = rankedGPUs[0].index;
+        
+        // Get properties of selected GPU for logging
+        VkPhysicalDeviceProperties selectedProperties;
+        vkGetPhysicalDeviceProperties(gpus[use_gpu], &selectedProperties);
+        std::string selectedType;
+        switch (selectedProperties.deviceType) {
+            case VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU: selectedType = "Integrated GPU"; break;
+            case VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU: selectedType = "Discrete GPU"; break;
+            case VK_PHYSICAL_DEVICE_TYPE_VIRTUAL_GPU: selectedType = "Virtual GPU"; break;
+            case VK_PHYSICAL_DEVICE_TYPE_CPU: selectedType = "CPU"; break;
+            default: selectedType = "Unknown"; break;
+        }
+        
         g_PhysicalDevice = gpus[use_gpu];
+        std::cout << "[+] Selected GPU: " << selectedProperties.deviceName 
+                  << " (" << selectedType << ")" << std::endl;
         std::cout << "[+] Vulkan: g_PhysicalDevice: 0x" << g_PhysicalDevice << std::endl;
     }
 
@@ -608,14 +666,8 @@ VK_LAYER_EXPORT VkResult VKAPI_CALL ModLoader_CreateDevice(
   dispatchTable.DestroyDevice = (PFN_vkDestroyDevice)gdpa(*pDevice, "vkDestroyDevice");
   dispatchTable.QueuePresentKHR = (PFN_vkQueuePresentKHR)gdpa(*pDevice, "vkQueuePresentKHR");
   dispatchTable.CreateSwapchainKHR = (PFN_vkCreateSwapchainKHR)gdpa(*pDevice, "vkCreateSwapchainKHR");
-  //dispatchTable.AcquireNextImageKHR = (PFN_vkAcquireNextImageKHR)gdpa(*pDevice, "vkAcquireNextImageKHR");
+ 
   dispatchTable.GetDeviceQueue = (PFN_vkGetDeviceQueue)gdpa(*pDevice, "vkGetDeviceQueue");
-
-
-  //dispatchTable.BeginCommandBuffer = (PFN_vkBeginCommandBuffer)gdpa(*pDevice, "vkBeginCommandBuffer");
-  //dispatchTable.CmdDraw = (PFN_vkCmdDraw)gdpa(*pDevice, "vkCmdDraw");
-  //dispatchTable.CmdDrawIndexed = (PFN_vkCmdDrawIndexed)gdpa(*pDevice, "vkCmdDrawIndexed");
-  //dispatchTable.EndCommandBuffer = (PFN_vkEndCommandBuffer)gdpa(*pDevice, "vkEndCommandBuffer");
 
   GetDeviceData(*pDevice)->vtable = dispatchTable;
   GetDeviceData(*pDevice)->device = *pDevice;
@@ -672,7 +724,6 @@ VK_LAYER_EXPORT PFN_vkVoidFunction VKAPI_CALL ModLoader_GetDeviceProcAddr(VkDevi
   GETPROCADDR(DestroyDevice);
   GETPROCADDR(QueuePresentKHR);
   GETPROCADDR(CreateSwapchainKHR);
-  //GETPROCADDR(AcquireNextImageKHR);
   
   {
     scoped_lock l(global_lock);
