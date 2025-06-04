@@ -6,7 +6,7 @@
 
 ## Overview
 
-ThatSkyModLoader is a powerful mod loader for Sky: Children of the Light on PC. It integrates with the game through a Vulkan layer, allowing for dynamic loading and management of mods without modifying the original game files.
+ThatSkyLoader is a powerful mod loader for Sky: Children of the Light on PC. It integrates with the game through a Vulkan layer, allowing for dynamic loading and management of mods without modifying the original game files.
 
 ## Features
 
@@ -28,8 +28,8 @@ ThatSkyModLoader is a powerful mod loader for Sky: Children of the Light on PC. 
 ### 1. Clone the Repository
 
 ```sh
-git clone https://github.com/XeTrinityz/ThatSkyModLoader.git
-cd ThatSkyModLoader
+git clone https://github.com/XeTrinityz/ThatSkyLoader.git
+cd ThatSkyLoader
 ```
 
 ### 2. Extract Dependencies
@@ -69,7 +69,7 @@ After building, the mod loader will be available as `powrprof.dll` in the `lib/r
 
 ## Creating Mods
 
-Mods for ThatSkyModLoader are DLL files that follow a specific API. A basic mod structure includes:
+Mods for ThatSkyLoader are DLL files that follow a specific API. A basic mod structure includes:
 
 ```cpp
 // Example mod structure
