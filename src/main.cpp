@@ -49,6 +49,7 @@ __declspec(dllexport) POWER_PLATFORM_ROLE PowerDeterminePlatformRole() {
     return o_PowerDeterminePlatformRole();
 }
 
+std::string g_basePath;
 // SML Log file
 std::ofstream SML_Log;
 
@@ -154,6 +155,54 @@ void InitConsole() {
 
     fflush(stdout);
     fflush(stderr);
+}
+
+/**
+ * @brief Ensures the SML config file exists, creating it with default values if it doesn't
+ */
+void EnsureConfigFileExists() {
+    std::string configPath = g_basePath + "\\tsml_config.json";
+    std::ifstream configFile(configPath);
+
+    if (!configFile.is_open()) {
+        print("Config file not found, creating default at: %s\n", configPath.c_str());
+
+        // Write the default config directly to file to preserve exact order
+        std::ofstream outFile(configPath);
+        if (outFile.is_open()) {
+            // Write the JSON with the exact formatting and order we want
+            outFile << R"({
+    "file_format_version" : "1.0.0",
+    "layer" : {
+      "name": "VkLayer_TSML",
+      "type": "GLOBAL",
+      "api_version": "1.3.221",
+      "library_path": ".\\powrprof.dll",
+      "implementation_version": "1",
+      "description": "A mod loader for the game Sky: Chilren of the Light",
+      "functions": {
+        "vkGetInstanceProcAddr": "ModLoader_GetInstanceProcAddr",
+        "vkGetDeviceProcAddr": "ModLoader_GetDeviceProcAddr"
+      },
+      "disable_environment": {
+        "DISABLE_VKROOTS_TEST_1": "1"
+      }
+    },
+    "fontPath": "fonts",
+    "fontSize": 18.0,
+    "unicodeRangeStart": "0x0001",
+    "unicodeRangeEnd": "0xFFFF"
+})";
+            outFile.close();
+            print("Created default config file successfully\n");
+        }
+        else {
+            print("Failed to create default config file!\n");
+        }
+    }
+    else {
+        configFile.close();
+    }
 }
 
 static WNDPROC oWndProc;
@@ -271,11 +320,11 @@ LSTATUS hkRegEnumValueA(HKEY hKey, DWORD dwIndex, LPSTR lpValueName, LPDWORD lpc
 
     std::wstring path = GetKeyPathFromKKEY(hKey);
     
-    std::string name = Menu::g_path + "\\tsml_config.json";
+    std::string name = g_basePath + "\\tsml_config.json";
     std::ifstream file(name);
 
     if (!file.is_open()) {
-        Menu::EnsureConfigFileExists();
+        EnsureConfigFileExists();
     }
 
     LSTATUS result = oRegEnumValueA(hKey, dwIndex, lpValueName, lpcchValueName, lpReserved, lpType, lpData, lpcbData);
@@ -330,7 +379,7 @@ void onAttach() {
     GetModuleFileNameW(NULL, path, MAX_PATH);
     std::wstring ws(path);
     std::string _path(ws.begin(), ws.end());
-    Menu::g_path = _path.substr(0, _path.find_last_of("\\/"));
+    g_basePath = _path.substr(0, _path.find_last_of("\\/"));
 
     HMODULE handle = LoadLibrary("advapi32.dll");
     if (handle != NULL) {
